@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #4c6aaf;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #ddd;
+        }
+        .pagination {
+            margin-top: 20px;
+        }
+        .pagination button {
+            margin: 0 5px;
+            padding: 8px 12px;
+            border: none;
+            background-color: #4c6aaf;
+            color: white;
+            cursor: pointer;
+        }
+        .pagination button:hover {
+            background-color: #3b578e;
+        }
+        .pagination .active {
+            background-color: #333;
+            color: white;
+        }
+        .fund-details {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Welcome to the Dashboard</h1>
+    <button id="logout-button">Logout</button>
+    
+    <h2>Select Fund Family</h2>
+    <select id="fund-family">
+        <option value="HDFC Mutual Fund">HDFC</option>
+        <option value="ICICI Prudential Mutual Fund">ICICI</option>
+        <option value="SBI Mutual Fund">SBI</option>
+    </select>
+    <button id="fetch-funds">Fetch Funds</button>
+
+    <h2>Available Funds</h2>
+    <table id="funds-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Scheme Name</th>
+                <th>Actions</th>
+                <th>Buy Fund</th>
+            </tr>
+        </thead>
+        <tbody id="funds-list"></tbody>
+    </table>
+    <div class="pagination" id="pagination-controls"></div>
+
+    <h2>Purchased Funds</h2>
+    <table id="purchased-funds-table">
+        <thead>
+            <tr>
+                <th>Scheme Name</th>
+                <th>Quantity</th>
+            </tr>
+        </thead>
+        <tbody id="purchased-funds-list"></tbody>
+    </table>
+    <div class="pagination" id="purchased-pagination-controls"></div>
+
+    <script>
+        let currentPage = 1;
+        let purchasedPage = 1;
+        const itemsPerPage = 10;
+        const purchasedFunds = []; // Array to store purchased funds
+        let fundsData = []; // Store fetched funds data
+
+        document.getElementById("fetch-funds").onclick = async function () {
+            const fundFamily = document.getElementById("fund-family").value;
+            const token = localStorage.getItem("token"); // Get token from local storage
+
+            if (!token) {
+                alert("You must be logged in to fetch funds.");
+                return;
+            }
+
+            const response = await fetch(`http://localhost:8000/funds/${fundFamily}`, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`, // Include token in the header
+                }
+            });
+
+            if (response.ok) {
+                fundsData = await response.json(); // Store fetched funds data
+                renderFunds(fundsData);
+            } else {
+                const error = await response.json();
+                alert("Error fetching funds: " + error.detail);
+            }
+        };
+
+        function renderFunds(funds) {
+            const fundsList = document.getElementById("funds-list");
+            fundsList.innerHTML = ""; // Clear previous results
+
+            // Calculate total pages
+            const totalPages = Math.ceil(funds.length / itemsPerPage);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const currentFunds = funds.slice(startIndex, endIndex);
+
+            currentFunds.forEach((fund, index) => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${startIndex + index + 1}</td>
+                    <td>${fund.Scheme_Name}</td>
+                    <td>
+                        <button class="toggle-details">+</button>
+                        <div class="fund-details">
+                            <p>Scheme Code: ${fund.Scheme_Code}</p>
+                            <p>ISIN (Div Payout): ${fund.ISIN_Div_Payout_ISIN_Growth}</p>
+                            <p>Net Asset Value: ${fund.Net_Asset_Value}</p>
+                            <p>Date: ${fund.Date}</p>
+                            <p>Scheme Type: ${fund.Scheme_Type}</p>
+                            <p>Scheme Category: ${fund.Scheme_Category}</p>
+                            <p>Mutual Fund Family: ${fund.Mutual_Fund_Family}</p>
+                        </div>
+                    </td>
+                    <td>
+                        <button class="buy-fund" data-scheme-code="${fund.Scheme_Code}">Buy Fund</button>
+                    </td>
+                `;
+                fundsList.appendChild(row);
+
+                // Toggle details on button click
+                const toggleButton = row.querySelector(".toggle-details");
+                const detailsDiv = row.querySelector(".fund-details");
+                toggleButton.onclick = function() {
+                    if (detailsDiv.style.display === "none" || detailsDiv.style.display === "") {
+                        detailsDiv.style.display = "block";
+                        toggleButton.textContent = "-"; // Change to minus
+                    } else {
+                        detailsDiv.style.display = "none";
+                        toggleButton.textContent = "+"; // Change to plus
+                    }
+                };
+
+                // Add event listener to the buy button
+                const buyButton = row.querySelector(".buy-fund");
+                buyButton.onclick = async function() {
+					let quantity;
+					do {
+						quantity = prompt("How many units would you like to purchase? (Enter a positive integer)");
+						if (quantity === null) return; // Allow canceling the prompt
+						quantity = parseInt(quantity);
+					} while (isNaN(quantity) || quantity <= 0 || !Number.isInteger(quantity)); // Check for positive integer
+
+					const token = localStorage.getItem("token"); // Get token from local storage
+
+					const purchaseResponse = await fetch("http://localhost:8000/buy", {
+						method: "POST",
+						headers: {
+							"Authorization": `Bearer ${token}`,
+							"Content-Type": "application/json"
+						},
+						body: JSON.stringify({ scheme_code: fund.Scheme_Code, quantity }) // Send scheme code and quantity
+					});
+
+					if (purchaseResponse.ok) {
+						alert("Purchase successful!");
+						purchasedFunds.push({ name: fund.Scheme_Name, quantity }); // Add to purchased funds
+						renderPurchasedFunds(); // Update purchased funds display
+					} else {
+						const error = await purchaseResponse.json();
+						alert("Error purchasing fund: " + error.detail);
+					}
+				};
+            });
+
+            renderPagination(totalPages);
+        }
+
+        function renderPurchasedFunds() {
+            const purchasedFundsList = document.getElementById("purchased-funds-list");
+            purchasedFundsList.innerHTML = ""; // Clear previous purchases
+
+            // Calculate total pages for purchased funds
+            const totalPages = Math.ceil(purchasedFunds.length / itemsPerPage);
+            const startIndex = (purchasedPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const currentPurchasedFunds = purchasedFunds.slice(startIndex, endIndex);
+
+            currentPurchasedFunds.forEach(purchase => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${purchase.name}</td>
+                    <td>${purchase.quantity}</td>
+                `;
+                purchasedFundsList.appendChild(row);
+            });
+
+            renderPurchasedPagination(totalPages);
+        }
+
+        function renderPagination(totalPages) {
+            const paginationControls = document.getElementById("pagination-controls");
+            paginationControls.innerHTML = ""; // Clear previous pagination
+
+            for (let i = 1; i <= totalPages; i++) {
+                const button = document.createElement("button");
+                button.textContent = i;
+                button.className = (i === currentPage) ? "active" : "";
+                button.onclick = function() {
+                    currentPage = i;
+                    renderFunds(fundsData); // Re-render funds with new page
+                };
+                paginationControls.appendChild(button);
+            }
+        }
+
+        function renderPurchasedPagination(totalPages) {
+            const purchasedPaginationControls = document.getElementById("purchased-pagination-controls");
+            purchasedPaginationControls.innerHTML = ""; // Clear previous pagination
+
+            for (let i = 1; i <= totalPages; i++) {
+                const button = document.createElement("button");
+                button.textContent = i;
+                button.className = (i === purchasedPage) ? "active" : "";
+                button.onclick = function() {
+                    purchasedPage = i;
+                    renderPurchasedFunds(); // Re-render purchased funds with new page
+                };
+                purchasedPaginationControls.appendChild(button);
+            }
+        }
+
+        document.getElementById("logout-button").onclick = function() {
+            localStorage.removeItem("token"); // Clear token on logout
+            window.location.href = "login.html"; // Redirect to login page
+        };
+    </script>
+</body>
+</html>
